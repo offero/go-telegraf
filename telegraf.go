@@ -5,14 +5,41 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"sort"
 	"strconv"
 	"time"
 )
 
+type Tag struct {
+	key   string
+	value string
+}
+
+type tagsLexi []Tag
+
+func (s tagsLexi) Len() int      { return len(s) }
+func (s tagsLexi) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
+func (s tagsLexi) Less(i, j int) bool {
+	return bytes.Compare([]byte(s[i].key), []byte(s[j].key)) < 0
+}
+
+type Field struct {
+	key   string
+	value interface{}
+}
+
+type fieldsLexi []Field
+
+func (s fieldsLexi) Len() int      { return len(s) }
+func (s fieldsLexi) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
+func (s fieldsLexi) Less(i, j int) bool {
+	return bytes.Compare([]byte(s[i].key), []byte(s[j].key)) < 0
+}
+
 type Metric struct {
 	name   string
-	tags   map[string]string
-	fields map[string]interface{}
+	tags   []Tag
+	fields []Field
 	t      time.Time
 }
 
@@ -20,8 +47,10 @@ func fieldValueToString(val interface{}) string {
 	switch val := val.(type) {
 	case int8, int16, int32, int64, int:
 		return fmt.Sprintf("%di", val)
-	case float32, float64:
-		return fmt.Sprintf("%f", val)
+	case float32:
+		return strconv.FormatFloat(float64(val), 'f', -1, 32)
+	case float64:
+		return strconv.FormatFloat(val, 'f', -1, 64)
 	case bool:
 		switch val {
 		case true:
@@ -40,28 +69,24 @@ func (m *Metric) Serialize() []byte {
 	buffer.WriteString(Escape(m.name, Name))
 	buffer.WriteString(",")
 
-	n := len(m.tags)
-	i := 0
-	for k, v := range m.tags {
-		i++
-		buffer.WriteString(Escape(k, TagKey))
+	sort.Sort(tagsLexi(m.tags))
+	for i, tag := range m.tags {
+		buffer.WriteString(Escape(tag.key, TagKey))
 		buffer.WriteString("=")
-		buffer.WriteString(Escape(v, TagVal))
-		if i < n {
+		buffer.WriteString(Escape(tag.value, TagVal))
+		if i < len(m.tags)-1 {
 			buffer.WriteString(",")
 		}
 	}
 
 	buffer.WriteString(" ")
 
-	n = len(m.tags)
-	i = 0
-	for k, v := range m.fields {
-		i++
-		buffer.WriteString(Escape(k, FieldKey))
+	sort.Sort(fieldsLexi(m.fields))
+	for i, field := range m.fields {
+		buffer.WriteString(Escape(field.key, FieldKey))
 		buffer.WriteString("=")
-		buffer.WriteString(fieldValueToString(v))
-		if i < n {
+		buffer.WriteString(fieldValueToString(field.value))
+		if i < len(m.fields)-1 {
 			buffer.WriteString(",")
 		}
 	}
@@ -75,7 +100,7 @@ func (m *Metric) Serialize() []byte {
 	return buffer.Bytes()
 }
 
-func NewMetric(name string, tags map[string]string, fields map[string]interface{}) Metric {
+func NewMetric(name string, tags []Tag, fields []Field) Metric {
 	m := Metric{name, tags, fields, time.Now()}
 	return m
 }
@@ -89,11 +114,13 @@ type Client struct {
 }
 
 func (c *Client) Send(m Metric) error {
-	body := m.Serialize()
+	// body := m.Serialize()
+	return nil
 }
 
 func (c *Client) Close() error {
 	c.conn.Close()
+	return nil
 }
 
 func NewClient(uri string) (*Client, error) {
